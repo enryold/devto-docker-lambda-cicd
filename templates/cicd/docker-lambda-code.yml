@@ -1,0 +1,404 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: docker.lambda - [S3 - CI/CD - ECR]
+Mappings:
+  ConstsMap:
+    company:
+      name: enryold
+    component:
+      name: docker
+    resource:
+      name: lambda
+      dotName: me.enryold.docker.lambda
+      zipName: me.enryold.docker.lambda.zip
+      handler: me.enryold.docker.lambda.Lambda::handleRequest
+      ecrRepoName: me.enryold/docker-lambda
+      ecrRepo: repository/me.enryold/docker-lambda
+  GitBranchMap:
+    branch:
+      default: master
+Resources:
+  # CODEBUILD SERVICE ROLE
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Join:
+        - "-"
+        - - Fn::FindInMap:
+            - ConstsMap
+            - component
+            - name
+          - Fn::FindInMap:
+            - ConstsMap
+            - resource
+            - name
+          - codebuild-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codebuild.amazonaws.com
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Resource: "*"
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          - Action:
+            - cloudformation:CreateChangeSet
+            - cloudformation:CreateStack
+            - cloudformation:DeleteStack
+            - cloudformation:Describe*
+            - cloudformation:ExecuteChangeSet
+            - cloudformation:UpdateStack
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - lambda:AddPermission
+            - lambda:CreateFunction
+            - lambda:DeleteFunction
+            - lambda:GetFunction
+            - lambda:GetFunctionConfiguration
+            - lambda:ListFunctions
+            - lambda:RemovePermission
+            - lambda:UpdateFunctionCode
+            - lambda:UpdateFunctionConfiguration
+            - lambda:InvokeFunction
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - iam:*
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - ecr:*
+            Resource:
+              Fn::Join:
+              - ":"
+              - - arn:aws:ecr
+                - Ref: AWS::Region
+                - Ref: AWS::AccountId
+                - Fn::FindInMap:
+                  - ConstsMap
+                  - resource
+                  - ecrRepo
+            Effect: Allow
+          - Action:
+            - ecr:GetAuthorizationToken
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - s3:*
+            Resource: 
+            - Fn::Join:
+              - ""
+              - - "arn:aws:s3:::"
+                - cicd-distribution-
+                - Ref: AWS::AccountId
+            - Fn::Join:
+              - ""
+              - - "arn:aws:s3:::"
+                - cicd-distribution-
+                - Ref: AWS::AccountId
+                - "/*"
+            Effect: Allow
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+
+
+  # CODEPIPELINE SERVICE ROLE         
+  AWSCodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Join:
+        - "-"
+        - - Fn::FindInMap:
+            - ConstsMap
+            - component
+            - name
+          - Fn::FindInMap:
+            - ConstsMap
+            - resource
+            - name
+          - codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Statement:
+          - Action:
+            - codecommit:Cancel*
+            - codecommit:Get*
+            - codecommit:Upload*
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - codedeploy:Create*
+            - codedeploy:Get*
+            - codedeploy:Register*
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - codebuild:Batch*
+            - codebuild:Start*
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - s3:GetObject*
+            - s3:GetBucket*
+            - s3:List*
+            - s3:DeleteObject*
+            - s3:PutObject*
+            - s3:Abort*
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - iam:PassRole
+            Resource: "*"
+            Effect: Allow
+          Version: '2012-10-17'
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+
+
+  # DISTRIBUTION BUCKET FOR CODEPIPELINE ARTIFACTS         
+  DistributionBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName:
+        Fn::Join:
+        - "-"
+        - - cicd-distribution
+          - Ref: AWS::AccountId
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Suspended
+
+
+
+  # CODECOMMIT REPO
+  CodeCommit:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryDescription:
+        Fn::Join:
+        - ''
+        - - 'Repository for '
+          - Fn::FindInMap:
+            - ConstsMap
+            - component
+            - name
+          - Fn::FindInMap:
+            - ConstsMap
+            - resource
+            - name
+      RepositoryName:
+        Fn::FindInMap:
+        - ConstsMap
+        - resource
+        - dotName
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+
+
+  # CODEBUILD PROJECT
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Join:
+        - "-"
+        - - Fn::FindInMap:
+            - ConstsMap
+            - component
+            - name
+          - Fn::FindInMap:
+            - ConstsMap
+            - resource
+            - name
+          - branch
+      Description:
+        Fn::Join:
+        - ''
+        - - 'Build for '
+          - Fn::FindInMap:
+            - ConstsMap
+            - component
+            - name
+          - Fn::FindInMap:
+            - ConstsMap
+            - resource
+            - name
+          - branch
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: sources/buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+        PrivilegedMode: true
+        ComputeType: BUILD_GENERAL1_LARGE
+        EnvironmentVariables:
+        - Name: AWS_ACCOUNT_ID
+          Value:
+            Ref: AWS::AccountId
+        - Name: PROJECT_NAME
+          Value:
+            Fn::Join:
+            - "-"
+            - - Fn::FindInMap:
+                - ConstsMap
+                - component
+                - name
+              - Fn::FindInMap:
+                - ConstsMap
+                - resource
+                - name
+      ServiceRole:
+        Fn::GetAtt:
+        - CodeBuildServiceRole
+        - Arn
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+
+  # CODEPIPELINE PIPELINE PROJECTS
+  Codepipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location:
+          Fn::Join:
+          - "-"
+          - - cicd-distribution
+            - Ref: AWS::AccountId
+      Name:
+        Fn::Join:
+        - "-"
+        - - Fn::FindInMap:
+            - ConstsMap
+            - component
+            - name
+          - Fn::FindInMap:
+            - ConstsMap
+            - resource
+            - name
+          - branch
+      RoleArn:
+        Fn::GetAtt:
+        - AWSCodePipelineServiceRole
+        - Arn
+      Stages:
+      - Name: Source
+        Actions:
+        - ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: 1
+            Provider: CodeCommit
+          Configuration:
+            RepositoryName:
+              Fn::GetAtt:
+              - CodeCommit
+              - Name
+            BranchName:
+              Fn::FindInMap:
+              - GitBranchMap
+              - branch
+              - default
+          Name: Source
+          OutputArtifacts:
+          - Name: Artifact
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: 1
+            Provider: CodeBuild
+          Configuration:
+            ProjectName:
+              Ref: CodeBuild
+          InputArtifacts:
+          - Name: Artifact
+          Name: Build
+          RunOrder: 2
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+
+
+  # ECR REPO
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName:
+        Fn::FindInMap:
+        - ConstsMap
+        - resource
+        - ecrRepoName
+      Tags:
+      - Key: Name
+        Value:
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name

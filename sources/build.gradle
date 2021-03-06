@@ -1,0 +1,43 @@
+plugins {
+    id 'java'
+    id 'maven'
+    id 'idea'
+}
+
+
+
+repositories {
+    mavenCentral()
+    jcenter()
+    maven {
+        url = 'https://repo.maven.apache.org/maven2'
+        url = 'https://repo1.maven.org/maven2/'
+    }
+}
+
+dependencies {
+
+    compile group: 'com.google.guava', name: 'guava', version: '30.0-jre'
+
+    compile "com.amazonaws:aws-lambda-java-runtime-interface-client:1.0.0"
+    testCompile 'org.junit.jupiter:junit-jupiter-api:5.7.0'
+    testCompile 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
+    testCompile 'org.assertj:assertj-core:3.18.0'
+}
+
+group = 'me.enryold.docker'
+version = '0.1'
+sourceCompatibility = '1.8'
+
+
+
+task copyRuntimeDependencies(type: Copy) {
+    from configurations.runtimeClasspath
+    into 'build/dependency'
+}
+
+build.dependsOn copyRuntimeDependencies
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}

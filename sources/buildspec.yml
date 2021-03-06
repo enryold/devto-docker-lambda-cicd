@@ -1,0 +1,21 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      docker: 18
+    commands:
+      - wget https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip
+      - unzip aws-sam-cli-linux-x86_64.zip -d sam-installation
+      - sam --version
+      - ./sam-installation/install --update
+      - /usr/local/bin/sam --version
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+  build:
+    commands:
+      - cd sources && gradle build
+      - /usr/local/bin/sam build --template-file ${CODEBUILD_SRC_DIR}/sources/sam.yml --region ${AWS_REGION}
+      - /usr/local/bin/sam package --template-file ${CODEBUILD_SRC_DIR}/sources/.aws-sam/build/template.yaml --output-template-file ${CODEBUILD_SRC_DIR}/sources/packaged.yaml --image-repository ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/me.enryold/docker-lambda
+      - /usr/local/bin/sam deploy --template-file ${CODEBUILD_SRC_DIR}/sources/packaged.yaml --stack-name ${PROJECT_NAME}-sam --capabilities CAPABILITY_NAMED_IAM --region ${AWS_REGION} --image-repository ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/me.enryold/docker-lambda

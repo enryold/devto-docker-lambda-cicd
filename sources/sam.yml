@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Lambda - lambda - Sam
+Mappings:
+  ConstsMap:
+    company:
+      name: enryold
+    component:
+      name: docker
+    resource:
+      name: lambda
+      dotName: me.enryold.docker.lambda
+      zipName: me.enryold.docker.lambda.zip
+      handler: me.enryold.docker.lambda.Lambda::handleRequest
+Resources:
+  Lambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: latest
+    Properties:
+      PackageType: Image
+      FunctionName: docker-lambda
+      MemorySize: 1536
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole                    # enable lambda execution
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - cloudwatch:*
+                - ec2:DescribeVpcs
+                - ec2:DescribeSubnets
+                - ec2:DescribeSecurityGroups
+                - ec2:DescribeKeyPairs
+              Resource: '*'
+      Tags:
+        Name: 
+          Fn::FindInMap:
+          - ConstsMap
+          - component
+          - name
+

@@ -1,0 +1,6 @@
+sources/.gradle
+sources/.idea
+sources/out
+*.DS_Store
+*.class
+sources/build
